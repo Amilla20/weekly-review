@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Умный еженедельный разбор</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button.export {
+            background-color: #27ae60;
+        }
+        button.import {
+            background-color: #f39c12;
+        }
+        button.reminder {
+            background-color: #9b59b6;
+        }
+        .review-item {
+            background-color: white;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .saved-reviews {
+            margin-top: 30px;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #2ecc71;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+            z-index: 1000;
+        }
+        .archive-controls {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="notification" id="notification">Данные сохранены!</div>
+    
+    <h1>📅 Умный еженедельный разбор</h1>
+    
+    <div class="controls">
+        <div>
+            <label for="week">Неделя:</label>
+            <input type="week" id="week" name="week">
+        </div>
+        <div>
+            <button class="reminder" onclick="setFridayReminder()">⏰ Напомнить в пятницу в 14:00</button>
+        </div>
+    </div>
+    
+    <div class="review-item">
+        <h3>✅ 3 успеха</h3>
+        <textarea id="good-things" placeholder="1. ..."></textarea>
+    </div>
+    
+    <div class="review-item">
+        <h3>💪 Сложности</h3>
+        <textarea id="hard-things"></textarea>
+    </div>
+    
+    <div class="review-item">
+        <h3>🚀 Планы</h3>
+        <textarea id="next-week"></textarea>
+    </div>
+    
+    <div class="controls">
+        <button onclick="saveReview()">💾 Сохранить</button>
+        <button class="export" onclick="exportToExcel()">📊 Excel</button>
+        <button class="import" onclick="importData()">📥 Импорт</button>
+    </div>
+    
+    <div class="saved-reviews">
+        <div class="archive-controls">
+            <h2>📁 Архив (последние 3 недели)</h2>
+            <button onclick="toggleFullArchive()">Показать весь архив</button>
+        </div>
+        <div id="reviews-list"></div>
+        <div id="full-archive" class="hidden"></div>
+    </div>
+
+    <script>
+        // Автосохранение каждые 2 секунды
+        let autosaveTimer;
+        function setupAutosave() {
+            const fields = ['week', 'good-things', 'hard-things', 'next-week'];
+            fields.forEach(id => {
+                document.getElementById(id).addEventListener('input', () => {
+                    clearTimeout(autosaveTimer);
+                    autosaveTimer = setTimeout(saveReview, 2000);
+                });
+            });
+        }
+        
+        // Показываем уведомление
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.display = 'block';
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Сохраняем данные
+        function saveReview() {
+            const week = document.getElementById('week').value;
+            if (!week) return;
+            
+            const review = {
+                week,
+                goodThings: document.getElementById('good-things').value,
+                hardThings: document.getElementById('hard-things').value,
+                nextWeek: document.getElementById('next-week').value,
+                lastModified: new Date().toISOString()
+            };
+            
+            let reviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+            
+            // Обновляем или добавляем
+            const existingIndex = reviews.findIndex(r => r.week === week);
+            if (existingIndex >= 0) {
+                reviews[existingIndex] = review;
+            } else {
+                reviews.push(review);
+            }
+            
+            localStorage.setItem('weeklyReviews', JSON.stringify(reviews));
+            showNotification('Автосохранено!');
+            displayReviews();
+        }
+        
+        // Экспорт в Excel
+        function exportToExcel() {
+            const reviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+            if (reviews.length === 0) {
+                alert("Нет данных для экспорта!");
+                return;
+            }
+            
+            let csv = "Неделя,Успехи,Сложности,Планы,Дата\n";
+            reviews.forEach(review => {
+                csv += `"${review.week}","${review.goodThings.replace(/"/g, '""')}",` +
+                       `"${review.hardThings.replace(/"/g, '""')}","${review.nextWeek.replace(/"/g, '""')}",` +
+                       `"${new Date(review.lastModified).toLocaleString()}"\n`;
+            });
+            
+            const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `разбор_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        }
+        
+        // Импорт данных
+        function importData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv,.json';
+            
+            input.onchange = e => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                
+                reader.onload = event => {
+                    try {
+                        let reviews = [];
+                        if (file.name.endsWith('.json')) {
+                            reviews = JSON.parse(event.target.result);
+                        } else {
+                            // Парсим CSV
+                            const csv = event.target.result;
+                            const lines = csv.split('\n');
+                            const headers = lines[0].split(',');
+                            
+                            for (let i = 1; i < lines.length; i++) {
+                                if (!lines[i]) continue;
+                                const values = lines[i].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+                                
+                                reviews.push({
+                                    week: values[0].replace(/"/g, ''),
+                                    goodThings: values[1].replace(/"/g, ''),
+                                    hardThings: values[2].replace(/"/g, ''),
+                                    nextWeek: values[3].replace(/"/g, ''),
+                                    lastModified: values[4] ? new Date(values[4].replace(/"/g, '')).toISOString() : new Date().toISOString()
+                                });
+                            }
+                        }
+                        
+                        const currentReviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+                        const mergedReviews = [...currentReviews, ...reviews.filter(r => 
+                            !currentReviews.some(cr => cr.week === r.week)
+                        )];
+                        
+                        localStorage.setItem('weeklyReviews', JSON.stringify(mergedReviews));
+                        displayReviews();
+                        showNotification(`Импортировано ${reviews.length} записей!`);
+                    } catch (error) {
+                        alert("Ошибка при импорте: " + error.message);
+                    }
+                };
+                
+                reader.readAsText(file);
+            };
+            
+            input.click();
+        }
+        
+        // Напоминание по пятницам в 14:00
+        function setFridayReminder() {
+            if (!("Notification" in window)) {
+                alert("Ваш браузер не поддерживает уведомления");
+                return;
+            }
+            
+            Notification.requestPermission().then(permission => {
+                if (permission === "granted") {
+                    const now = new Date();
+                    let nextFriday = new Date();
+                    
+                    // Устанавливаем на ближайшую пятницу 14:00
+                    nextFriday.setDate(now.getDate() + (5 + 7 - now.getDay()) % 7);
+                    nextFriday.setHours(14, 0, 0, 0);
+                    
+                    // Если сегодня пятница и время уже прошло - ставим на следующую
+                    if (now.getDay() === 5 && now.getHours() >= 14) {
+                        nextFriday.setDate(nextFriday.getDate() + 7);
+                    }
+                    
+                    const timeUntilFriday = nextFriday - now;
+                    
+                    if (timeUntilFriday > 0) {
+                        setTimeout(() => {
+                            new Notification("⏰ Пятничный разбор!", {
+                                body: "Пора подвести итоги недели! Сегодня в 14:00",
+                                icon: "https://img.icons8.com/fluency/48/calendar--v1.png"
+                            });
+                            
+                            // Повторяем каждую неделю
+                            setInterval(() => {
+                                new Notification("⏰ Пятничный разбор!", {
+                                    body: "Пора подвести итоги недели! Сегодня в 14:00",
+                                    icon: "https://img.icons8.com/fluency/48/calendar--v1.png"
+                                });
+                            }, 7 * 24 * 60 * 60 * 1000);
+                            
+                        }, timeUntilFriday);
+                        
+                        alert(`Напоминание установлено на ${nextFriday.toLocaleString()}`);
+                    } else {
+                        alert("Ошибка расчёта времени!");
+                    }
+                }
+            });
+        }
+        
+        // Переключение между полным архивом и последними 3 неделями
+        function toggleFullArchive() {
+            const fullArchive = document.getElementById('full-archive');
+            const reviewsList = document.getElementById('reviews-list');
+            const button = document.querySelector('.archive-controls button');
+            
+            if (fullArchive.classList.contains('hidden')) {
+                fullArchive.classList.remove('hidden');
+                reviewsList.classList.add('hidden');
+                button.textContent = 'Показать последние 3 недели';
+                displayFullArchive();
+            } else {
+                fullArchive.classList.add('hidden');
+                reviewsList.classList.remove('hidden');
+                button.textContent = 'Показать весь архив';
+                displayReviews();
+            }
+        }
+        
+        // Показ последних 3 недель
+        function displayReviews() {
+            const reviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+            const reviewsList = document.getElementById('reviews-list');
+            
+            reviewsList.innerHTML = '';
+            
+            if (reviews.length === 0) {
+                reviewsList.innerHTML = '<p>Нет сохранённых разборов.</p>';
+                return;
+            }
+            
+            // Сортировка по дате (новые сверху)
+            reviews.sort((a, b) => new Date(b.week) - new Date(a.week));
+            
+            // Показываем только последние 3
+            const recentReviews = reviews.slice(0, 3);
+            
+            recentReviews.forEach(review => {
+                const reviewElement = document.createElement('div');
+                reviewElement.className = 'review-item';
+                reviewElement.innerHTML = `
+                    <h3>${review.week}</h3>
+                    <p><strong>✅ Успехи:</strong> ${review.goodThings || '—'}</p>
+                    <p><strong>💪 Сложности:</strong> ${review.hardThings || '—'}</p>
+                    <p><strong>🚀 Планы:</strong> ${review.nextWeek || '—'}</p>
+                    <small>Изменено: ${new Date(review.lastModified).toLocaleString()}</small>
+                    <button onclick="loadReview('${review.week}')">Загрузить</button>
+                    <button onclick="deleteReview('${review.week}')" style="background-color:#e74c3c">Удалить</button>
+                `;
+                reviewsList.appendChild(reviewElement);
+            });
+            
+            if (reviews.length > 3) {
+                reviewsList.innerHTML += `<p>И ещё ${reviews.length - 3} записей в архиве...</p>`;
+            }
+        }
+        
+        // Показ полного архива
+        function displayFullArchive() {
+            const reviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+            const fullArchive = document.getElementById('full-archive');
+            
+            fullArchive.innerHTML = '';
+            
+            if (reviews.length === 0) {
+                fullArchive.innerHTML = '<p>Нет сохранённых разборов.</p>';
+                return;
+            }
+            
+            // Сортировка по дате (новые сверху)
+            reviews.sort((a, b) => new Date(b.week) - new Date(a.week));
+            
+            reviews.forEach(review => {
+                const reviewElement = document.createElement('div');
+                reviewElement.className = 'review-item';
+                reviewElement.innerHTML = `
+                    <h3>${review.week}</h3>
+                    <p><strong>✅ Успехи:</strong> ${review.goodThings || '—'}</p>
+                    <p><strong>💪 Сложности:</strong> ${review.hardThings || '—'}</p>
+                    <p><strong>🚀 Планы:</strong> ${review.nextWeek || '—'}</p>
+                    <small>Изменено: ${new Date(review.lastModified).toLocaleString()}</small>
+                    <button onclick="loadReview('${review.week}')">Загрузить</button>
+                    <button onclick="deleteReview('${review.week}')" style="background-color:#e74c3c">Удалить</button>
+                `;
+                fullArchive.appendChild(reviewElement);
+            });
+        }
+        
+        // Загрузка конкретного разбора
+        function loadReview(week) {
+            const reviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+            const review = reviews.find(r => r.week === week);
+            
+            if (review) {
+                document.getElementById('week').value = review.week;
+                document.getElementById('good-things').value = review.goodThings || '';
+                document.getElementById('hard-things').value = review.hardThings || '';
+                document.getElementById('next-week').value = review.nextWeek || '';
+                window.scrollTo(0, 0);
+                showNotification(`Загружен разбор за ${week}`);
+            }
+        }
+        
+        // Удаление разбора
+        function deleteReview(week) {
+            if (confirm(`Удалить разбор за ${week}?`)) {
+                let reviews = JSON.parse(localStorage.getItem('weeklyReviews')) || [];
+                reviews = reviews.filter(r => r.week !== week);
+                localStorage.setItem('weeklyReviews', JSON.stringify(reviews));
+                displayReviews();
+                displayFullArchive();
+                showNotification("Удалено!");
+            }
+        }
+        
+        // Инициализация
+        window.onload = function() {
+            setupAutosave();
+            displayReviews();
+            
+            // Установка текущей недели по умолчанию
+            const today = new Date();
+            const year = today.getFullYear();
+            let weekNumber = getWeekNumber(today);
+            weekNumber = weekNumber < 10 ? '0' + weekNumber : weekNumber;
+            document.getElementById('week').value = `${year}-W${weekNumber}`;
+            
+            // Попытка загрузить последний редактируемый разбор
+            const lastWeek = localStorage.getItem('lastEditedWeek');
+            if (lastWeek) {
+                loadReview(lastWeek);
+            }
+        };
+        
+        // Функция для определения номера недели
+        function getWeekNumber(d) {
+            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            const weekNo = Math.ceil(( ( (d - yearStart) / 86400000) + 1)/7);
+            return weekNo;
+        }
+    </script>
+</body>
+</html>
